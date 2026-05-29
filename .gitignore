@@ -1,0 +1,29 @@
+# Byte-compiled / optimized Python files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test / tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Runtime-generated data: dataset, vocab, model checkpoints
+data/
+
+# Model checkpoints (belt-and-suspenders, in case they land outside data/)
+*.pt
+*.pth
+
+# macOS
+.DS_Store
+
+# Editor / IDE
+.idea/
+.vscode/
