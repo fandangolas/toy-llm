@@ -1,6 +1,6 @@
 # Architecture
 
-This document explains how the project is put together, why it was built this way, and how the three planned pieces — **LLM**, **harness**, and **RAG** — fit into one system.
+This document explains how the project is put together, why it was built this way, and how the three pieces — **LLM**, **harness**, and **RAG** — fit into one system.
 
 For the *why behind each concept* (embeddings, attention, etc.) see [`docs/concepts/`](concepts/). This document is focusing on the *system*, not the math.
 
@@ -15,7 +15,7 @@ Every decision in this project is subordinate to that goal. The model is deliber
 We are building three things, in order:
 
 1. **The LLM** — a GPT-style transformer that generates text. *(built)*
-2. **The harness** — a thin orchestrator that connects components and abstracts the LLM behind a swappable interface. *(planned)*
+2. **The harness** — a thin orchestrator that connects components and abstracts the LLM behind a swappable interface. *(built — toy + Ollama providers)*
 3. **RAG** — retrieval that feeds relevant context into the LLM at generation time. *(planned)*
 
 ---
@@ -51,12 +51,13 @@ The flow is always the same: the harness receives a question, asks RAG for relev
 | Component | Status | Where |
 |---|---|---|
 | LLM (tokenizer, attention, transformer, training) | ✅ Built | `model/` |
+| Harness + `LLMProvider` abstraction | ✅ Built | `harness/` |
+| Providers: `ToyLLMProvider`, `OllamaProvider` | ✅ Built | `harness/` |
 | Concept documentation | ✅ In progress | `docs/concepts/` |
-| Tests | ✅ Built | `tests/` |
-| Harness + provider abstraction | ⬜ Planned | `harness/` (not yet created) |
+| Tests (36) | ✅ Built | `tests/` |
 | RAG (chunking, embedding, vector store, retrieval) | ⬜ Planned | `rag/` (not yet created) |
 
-The rest of this document describes the built LLM in detail and sketches the design of the two planned components so the interfaces are clear before we write them.
+The rest of this document describes the built LLM and harness, then sketches the design of the still-planned RAG component so its interface is clear before we write it.
 
 ---
 
@@ -115,7 +116,7 @@ Deeper explanations live in [`docs/concepts/001-embeddings.md`](concepts/001-emb
 
 ---
 
-## Component 2 — The Harness (planned)
+## Component 2 — The Harness (built)
 
 The harness has two jobs: **orchestration** (the flow shown in the system overview) and **abstraction** (hiding *which* LLM is being used behind a single interface).
 
@@ -135,22 +136,35 @@ classDiagram
     class OllamaProvider {
         +generate(prompt, max_tokens) str
     }
-    class OpenAIProvider {
+    class APIProvider {
+        <<planned>>
         +generate(prompt, max_tokens) str
     }
 
     LLMProvider <|.. ToyLLMProvider
     LLMProvider <|.. OllamaProvider
-    LLMProvider <|.. OpenAIProvider
+    LLMProvider <|.. APIProvider
 
-    ToyLLMProvider --> GPT : wraps our model + tokenizer
-    OllamaProvider --> Ollama : local HTTP call
-    OpenAIProvider --> OpenAI : remote API call
+    ToyLLMProvider --> GPT : wraps our model + tokenizer (built)
+    OllamaProvider --> Ollama : local HTTP, stdlib only (built)
+    APIProvider --> HostedAPI : OpenAI / Anthropic / Gemini (planned)
 ```
 
-`ToyLLMProvider` is a thin adapter: it takes a string prompt, encodes it with `CharTokenizer`, calls `GPT.generate()`, and decodes the result back to a string. The model code in `model/` stays clean — it knows nothing about prompts, RAG, or providers. The adapter lives in the harness.
+Both providers exist today:
 
-**Why this matters for learning:** once the interface exists, you can directly compare your hand-built 830K-parameter model against a real 8-billion-parameter model on the *same* prompt, through the *same* code path. That contrast is one of the most instructive things in the whole project.
+- **`ToyLLMProvider`** is a thin adapter: it takes a string prompt, encodes it with `CharTokenizer`, calls `GPT.generate()`, and decodes the result back to a string. The model code in `model/` stays clean — it knows nothing about prompts, RAG, or providers.
+- **`OllamaProvider`** talks to a locally running Ollama server over HTTP using only the standard library — no new dependencies. Same `generate(prompt, max_tokens) -> str` call, an entirely different model behind it.
+
+A hosted-API provider (OpenAI / Anthropic / Gemini) would be one more class implementing the same one-method interface; nothing else would change.
+
+**Why this matters for learning:** the abstraction has already paid off. The *same* `provider.generate(...)` call drives both the hand-built 832K-parameter toy model and a 14-billion-parameter `qwen2.5-coder` running locally through Ollama — identical code path, wildly different capability. Feeling that contrast directly is one of the most instructive things in the whole project.
+
+### Running it
+
+```bash
+python -m harness                                      # the toy model (needs a trained checkpoint)
+python -m harness --provider ollama --model qwen2.5-coder:14b
+```
 
 ---
 
@@ -205,7 +219,7 @@ Every choice below trades production-grade capability for **learnability**. The 
 | Decision | What we chose | Why (for learning) |
 |---|---|---|
 | **Tokenizer** | Character-level (65-token vocab) | The entire vocab fits on screen; the tokenizer is ~10 lines. BPE/subword would hide the mechanics behind a trained algorithm. |
-| **Model size** | ~830K parameters | Trains on a laptop CPU in minutes. Every architectural concept (attention, residuals, layer norm) is present at full size — only the dimensions are small. |
+| **Model size** | ~832K parameters | Trains on a laptop CPU in minutes. Every architectural concept (attention, residuals, layer norm) is present at full size — only the dimensions are small. |
 | **Framework** | PyTorch | Autograd handles backpropagation so you can focus on *architecture*, not hand-deriving gradients. Raw NumPy would bury the concepts under calculus plumbing. |
 | **File count** | 4 files, one concept each | No package sprawl. You can hold the whole model in your head. |
 | **Dataset** | Tiny Shakespeare (~1 MB) | Small enough to train fast, structured enough that progress is visible and fun (names, dialogue, verse). |
@@ -229,8 +243,8 @@ These are the rules that keep the components swappable. They are worth stating e
 ## Roadmap
 
 1. ✅ **LLM** — tokenizer, attention, transformer, training loop.
-2. ⬜ **Harness skeleton** — define `LLMProvider`, implement `ToyLLMProvider` around the trained checkpoint.
-3. ⬜ **Wire a real provider** — add `OllamaProvider` or `OpenAIProvider`, compare outputs through the same interface.
+2. ✅ **Harness skeleton** — `LLMProvider` Protocol + `ToyLLMProvider` around the trained checkpoint.
+3. ✅ **Wire a real provider** — `OllamaProvider` (stdlib HTTP), compared against the toy model through the same interface.
 4. ⬜ **RAG** — chunking, an embedding function, a minimal vector store, and `retrieve()`.
 5. ⬜ **Connect everything** — harness calls RAG, builds the prompt, calls the provider, returns the answer.
 
