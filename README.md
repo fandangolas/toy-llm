@@ -67,51 +67,7 @@ python -m model.train
 
 The script downloads the Tiny Shakespeare dataset on the first run (~1 MB), trains for 5000 steps, prints loss and a text sample every 500 steps, and saves `data/checkpoint.pt` at the end.
 
-**Actual output from a run:**
-
-```
-Vocab size: 65 characters
-Model parameters: 832,384  |  Device: cpu
-
-step     0  |  train loss 4.2100  |  val loss 4.2113
---- sample ---
-z''tC.f-cMnu?z!JsI&!lRbKI!ISjt nRUWsqLQQ.kKbwb-tLPnBQutZpCNRV&Boob...
---------------
-
-step  5000  |  train loss 1.3272  |  val loss 1.5571
---- sample ---
-ANGELO:
-I would you all make myself provost,
-Fasticion for what him vainity disipers
-Tell him athe rivecolate the son ame,
---------------
-```
-
-Loss drops from **4.21** (random guessing over 65 characters ≈ `ln(65)`) to **~1.33**. By the end the model produces recognizable Shakespearean structure — character names, dialogue layout, archaic words — having never been told a single grammar rule. On a modern CPU this takes 10–15 minutes; on a GPU, under 2.
-
-Run the tests:
-
-```bash
-python -m pytest tests/
-```
-
----
-
-## The model in brief
-
-A character-level, GPT-style decoder-only transformer.
-
-| Hyperparameter | Value |
-|---|---|
-| Embedding dimension (`n_embd`) | 128 |
-| Context length (`block_size`) | 256 characters |
-| Transformer layers (`n_layer`) | 4 |
-| Attention heads (`n_head`) | 4 |
-| Dropout | 0.1 |
-| Vocabulary | 65 characters |
-| Total parameters | ~832K |
-
-Each block is `LayerNorm → causal self-attention → residual → LayerNorm → MLP → residual`. The token embedding and output projection share one weight matrix (weight tying). Training uses AdamW with gradient clipping; generation uses temperature scaling and top-k sampling. See **[docs/architecture.md](docs/architecture.md)** for the annotated forward-pass and block diagrams.
+For the full model spec (hyperparameters) and sample training results, see **[docs/toy-model.md](docs/toy-model.md)**.
 
 ---
 
@@ -150,9 +106,11 @@ Read these in roughly this order:
 
 1. **[docs/architecture.md](docs/architecture.md)** — the system. How the LLM, harness, and RAG fit together; the forward pass and transformer block drawn out; the provider abstraction that makes the model swappable; the end-to-end RAG flow; and the reasoning behind every "keep it simple" decision.
 
-2. **[docs/concepts/001-embeddings.md](docs/concepts/001-embeddings.md)** — why raw token integers aren't enough, how the token and position embedding tables work, and what the combined vector looks like before it enters the transformer.
+2. **[docs/toy-model.md](docs/toy-model.md)** — the toy model's spec sheet: hyperparameters, training setup, and sample results (loss curve and generated text).
 
-3. **[docs/concepts/002-qkv.md](docs/concepts/002-qkv.md)** — how each token produces Query, Key, and Value vectors, how dot-product scores become attention weights through softmax, and why the three are kept as separate projections.
+3. **[docs/concepts/001-embeddings.md](docs/concepts/001-embeddings.md)** — why raw token integers aren't enough, how the token and position embedding tables work, and what the combined vector looks like before it enters the transformer.
+
+4. **[docs/concepts/002-qkv.md](docs/concepts/002-qkv.md)** — how each token produces Query, Key, and Value vectors, how dot-product scores become attention weights through softmax, and why the three are kept as separate projections.
 
 Each concept doc follows the same shape: the problem, the intuition, the step-by-step mechanics, and how PyTorch implements it.
 
