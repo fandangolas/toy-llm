@@ -139,3 +139,9 @@ Each concept doc follows the same shape: the problem, the intuition, the step-by
 3. ⬜ **Real provider** — add an Ollama or API-based provider and compare against the toy model through the same interface.
 4. ⬜ **RAG** — chunking, an embedding function, a minimal vector store, and `retrieve()`.
 5. ⬜ **Connect everything** — harness calls RAG, builds the prompt, calls the provider, returns the answer.
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE).
