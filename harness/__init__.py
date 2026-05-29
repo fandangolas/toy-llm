@@ -2,11 +2,13 @@
 harness — orchestration and LLM provider abstraction layer.
 
 Public surface:
-  LLMProvider   — a typing.Protocol; implement generate() to plug in any LLM.
+  LLMProvider    — a typing.Protocol; implement generate() to plug in any LLM.
   ToyLLMProvider — the adapter that wraps our hand-built GPT + CharTokenizer.
+  OllamaProvider — talks to a local Ollama server over HTTP (stdlib only).
 """
 
 from harness.provider import LLMProvider
 from harness.toy_provider import ToyLLMProvider
+from harness.ollama_provider import OllamaProvider
 
-__all__ = ["LLMProvider", "ToyLLMProvider"]
+__all__ = ["LLMProvider", "ToyLLMProvider", "OllamaProvider"]
