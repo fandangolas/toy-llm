@@ -73,7 +73,7 @@ For the full model spec (hyperparameters) and sample training results, see **[do
 
 ## Talking to a model — the harness
 
-The harness puts any LLM behind one interface — `generate(prompt: str, max_tokens: int) -> str` — so the same code drives your toy model or a real one.
+The harness puts any LLM behind one interface, so the same code drives your toy model or a real one.
 
 Chat with the **toy model** you trained:
 
@@ -87,16 +87,7 @@ Chat with a **local Ollama model** through the identical interface:
 python -m harness --provider ollama --model qwen2.5-coder:14b
 ```
 
-Both accept `--max-tokens`, `--temperature`, and `--top-k`. (For Ollama, `max_tokens` counts sub-word tokens, not characters — so the reply length won't equal it.) It works programmatically too:
-
-```python
-from harness import ToyLLMProvider, OllamaProvider
-
-provider = ToyLLMProvider.from_checkpoint()        # or: OllamaProvider(model="qwen2.5-coder:14b")
-print(provider.generate("ROMEO:", max_tokens=200))
-```
-
-The payoff: the toy model and a 14B model are called identically — only the object you construct changes, never the call site. Adding OpenAI / Anthropic / Gemini later is one new class with the same `generate` method. See **[docs/architecture.md](docs/architecture.md)** for the full provider design.
+Both accept `--max-tokens`, `--temperature`, and `--top-k`. (For Ollama, `max_tokens` counts sub-word tokens, not characters — so the reply length won't equal it.) See **[docs/architecture.md](docs/architecture.md)** for the full provider design.
 
 ---
 
@@ -113,22 +104,6 @@ Read these in roughly this order:
 4. **[docs/concepts/002-qkv.md](docs/concepts/002-qkv.md)** — how each token produces Query, Key, and Value vectors, how dot-product scores become attention weights through softmax, and why the three are kept as separate projections.
 
 Each concept doc follows the same shape: the problem, the intuition, the step-by-step mechanics, and how PyTorch implements it.
-
----
-
-## Tests
-
-**36 tests total** — run them with `python -m pytest`:
-
-- `tests/test_model.py` (14) — one section per model file.
-- `tests/test_harness.py` (16) — the provider abstraction and `ToyLLMProvider`, run against a tiny in-memory model so no trained checkpoint is needed.
-- `tests/test_ollama_provider.py` (6) — `OllamaProvider` with the HTTP layer mocked, so no running Ollama server is needed.
-
-The most instructive model tests:
-
-- **Causal masking** — runs a full sequence and a prefix, then asserts the prefix output matches the first *N* positions of the full run. This is the real proof that future tokens never leak backward.
-- **Weight tying** — asserts `lm_head.weight is token_emb.weight` (identity, not equality) so a copy would fail the test.
-- **Next-token invariant** — `get_batch` returns `y` as `x` shifted one position right (`y[:, :-1] == x[:, 1:]`), the relationship that makes next-character prediction work.
 
 ---
 
