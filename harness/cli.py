@@ -7,15 +7,38 @@ Pick a provider with --provider:
   toy     the hand-built GPT model (default; needs a trained checkpoint)
   ollama  a local Ollama model, e.g. --provider ollama --model qwen2.5-coder:14b
 
-Type a prompt and press Enter to generate. Empty line, "quit", or Ctrl-D exits.
+Type a prompt and press Enter to generate. Empty line, "quit", Ctrl-C, or Ctrl-D exits.
 """
 
 import argparse
+import os
 import sys
 
 from harness.provider import LLMProvider
 from harness.toy_provider import ToyLLMProvider
 from harness.ollama_provider import OllamaProvider
+
+
+def _enable_line_editing() -> None:
+    """Enable arrow keys, line editing, and persistent history for input().
+
+    Importing readline activates cursor movement (left/right), in-session
+    history (up/down), and emacs-style editing for the built-in input().
+    History is also persisted across sessions. Degrades gracefully on
+    platforms where readline is unavailable (e.g. vanilla Windows).
+    """
+    try:
+        import atexit
+        import readline
+    except ImportError:
+        return  # line editing unavailable; input() still works
+
+    history_file = os.path.expanduser("~/.toyllm_history")
+    try:
+        readline.read_history_file(history_file)
+    except OSError:
+        pass  # no history yet (first run) or unreadable
+    atexit.register(readline.write_history_file, history_file)
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -115,6 +138,8 @@ def main() -> None:
         )
         sys.exit(1)
 
+    _enable_line_editing()
+
     label = f"Ollama ({args.model})" if args.provider == "ollama" else "Toy LLM"
     print(f"{label} — type a prompt and press Enter. Empty line or 'quit' to exit.")
     print(f"(generating up to {args.max_tokens} tokens per prompt)\n")
@@ -122,8 +147,11 @@ def main() -> None:
     while True:
         try:
             prompt = input("prompt> ")
-        except EOFError:
+        except EOFError:                  # Ctrl-D
             print()
+            break
+        except KeyboardInterrupt:         # Ctrl-C at the prompt → exit cleanly
+            print("\nBye!")
             break
 
         if prompt.strip() == "" or prompt.strip().lower() == "quit":
@@ -131,6 +159,9 @@ def main() -> None:
 
         try:
             output = provider.generate(prompt, max_tokens=args.max_tokens)
+        except KeyboardInterrupt:         # Ctrl-C while generating → cancel, re-prompt
+            print("\n[cancelled]")
+            continue
         except (ValueError, RuntimeError) as exc:
             print(f"Error: {exc}", file=sys.stderr)
             continue

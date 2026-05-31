@@ -118,4 +118,8 @@ def main() -> None:
             pass
 
 
-main()
+try:
+    main()
+except KeyboardInterrupt:
+    print("\nInterrupted.", file=sys.stderr)
+    sys.exit(130)
