@@ -124,6 +124,41 @@ def build_provider(args: argparse.Namespace) -> LLMProvider:
     )
 
 
+def run_repl(provider: LLMProvider, max_tokens: int, label: str) -> None:
+    """Run the interactive prompt loop against *provider*.
+
+    Extracted from main() so the Ctrl-C / EOF handling is unit-testable with a
+    fake provider and a monkeypatched input() — no model, server, or terminal.
+    """
+    print(f"{label} — type a prompt and press Enter. Empty line or 'quit' to exit.")
+    print(f"(generating up to {max_tokens} tokens per prompt)\n")
+
+    while True:
+        try:
+            prompt = input("prompt> ")
+        except EOFError:                  # Ctrl-D
+            print()
+            break
+        except KeyboardInterrupt:         # Ctrl-C at the prompt → exit cleanly
+            print("\nBye!")
+            break
+
+        if prompt.strip() == "" or prompt.strip().lower() == "quit":
+            break
+
+        try:
+            output = provider.generate(prompt, max_tokens=max_tokens)
+        except KeyboardInterrupt:         # Ctrl-C while generating → cancel, re-prompt
+            print("\n[cancelled]")
+            continue
+        except (ValueError, RuntimeError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            continue
+
+        print(output)
+        print()
+
+
 def main() -> None:
     parser = build_argument_parser()
     args = parser.parse_args()
@@ -141,30 +176,4 @@ def main() -> None:
     _enable_line_editing()
 
     label = f"Ollama ({args.model})" if args.provider == "ollama" else "Toy LLM"
-    print(f"{label} — type a prompt and press Enter. Empty line or 'quit' to exit.")
-    print(f"(generating up to {args.max_tokens} tokens per prompt)\n")
-
-    while True:
-        try:
-            prompt = input("prompt> ")
-        except EOFError:                  # Ctrl-D
-            print()
-            break
-        except KeyboardInterrupt:         # Ctrl-C at the prompt → exit cleanly
-            print("\nBye!")
-            break
-
-        if prompt.strip() == "" or prompt.strip().lower() == "quit":
-            break
-
-        try:
-            output = provider.generate(prompt, max_tokens=args.max_tokens)
-        except KeyboardInterrupt:         # Ctrl-C while generating → cancel, re-prompt
-            print("\n[cancelled]")
-            continue
-        except (ValueError, RuntimeError) as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            continue
-
-        print(output)
-        print()
+    run_repl(provider, args.max_tokens, label)

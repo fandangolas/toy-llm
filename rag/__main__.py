@@ -118,8 +118,19 @@ def main() -> None:
             pass
 
 
-try:
-    main()
-except KeyboardInterrupt:
-    print("\nInterrupted.", file=sys.stderr)
-    sys.exit(130)
+def _run() -> int:
+    """Run the demo, converting Ctrl-C into a clean exit code (130).
+
+    Separated from the module-level guard so the interrupt handling is
+    importable and unit-testable without executing the demo on import.
+    """
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nInterrupted.", file=sys.stderr)
+        return 130
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(_run())
