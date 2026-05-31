@@ -1,6 +1,6 @@
 # llm-toy-project
 
-A GPT-style language model built from scratch in PyTorch, plus a small harness that puts it — or any other model — behind one swappable interface. Retrieval (RAG) comes next.
+A GPT-style language model built from scratch in PyTorch, a small harness that puts it — or any other model — behind one swappable interface, and a RAG layer that grounds answers in your own documents.
 
 The goal is not a useful model. The goal is to **understand how an LLM works under the hood** by building one in a handful of readable files, with no frameworks doing invisible work.
 
@@ -10,15 +10,31 @@ The goal is not a useful model. The goal is to **understand how an LLM works und
 
 ## The bigger picture
 
-The project is three loosely-coupled components, built in order. Two of the three exist today.
+The project is three loosely-coupled components, built in order. All three exist today.
 
 | Component | What it does | Status |
 |---|---|---|
 | **LLM** | A decoder-only transformer that generates text one character at a time | ✅ Built (`model/`) |
 | **Harness** | Orchestrates the flow and hides the LLM behind a swappable interface | ✅ Built (`harness/`) |
-| **RAG** | Retrieves relevant text and feeds it into the prompt at generation time | ⬜ Planned |
+| **RAG** | Retrieves relevant text and feeds it into the prompt at generation time | ✅ Built (`rag/`) |
 
 The harness is the only piece that knows about the others, which is what lets each be built and understood in isolation. The full design — with diagrams of the system, the model internals, the provider abstraction, and the RAG flow — lives in **[docs/architecture.md](docs/architecture.md)**.
+
+---
+
+## The path so far
+
+This project grew one decision at a time, each driven by the goal of *understanding* — not shipping a product:
+
+1. **Build a real LLM from scratch.** We started with the toy model — a character-level GPT trained only on Tiny Shakespeare — to see every moving part of a transformer first-hand: tokenizing, embeddings, attention, the training loop. (Spec and results in [docs/toy-model.md](docs/toy-model.md).)
+
+2. **Stop paying to train.** Training even a tiny LLM costs time and compute, and the goal here is *concepts*, not a better model. So once the internals were clear, we put the toy model behind an interface and switched to a capable model running locally through **Ollama** — real capability, nothing to train.
+
+3. **Exercise the harness.** With a local model in place, we used it to test the harness — the swappable provider layer that lets the toy model and a 14B model be driven through the exact same code path.
+
+4. **Add context with RAG.** Then we layered **RAG** on top, so prompts could be grounded in our own documents instead of relying only on what the model memorized.
+
+5. **Next: the math.** With the system built end to end, the focus is shifting back to the *concepts* — deep-diving the math behind LLMs and writing it up in [docs/concepts/](docs/concepts/).
 
 ---
 
@@ -35,17 +51,28 @@ llm-toy-project/
 │   ├── provider.py         # LLMProvider — the swappable generation interface (Protocol)
 │   ├── toy_provider.py     # ToyLLMProvider — wraps the trained GPT + tokenizer
 │   ├── ollama_provider.py  # OllamaProvider — local Ollama models over HTTP (stdlib only)
+│   ├── pipeline.py         # RAGPipeline — retrieve → augment → generate
 │   └── cli.py              # `python -m harness` interactive prompt loop
+├── rag/
+│   ├── chunk.py            # Split documents into overlapping passages
+│   ├── embed.py            # OllamaEmbedder — text → vectors (stdlib HTTP)
+│   ├── store.py            # VectorStore abstraction + SqliteStore backend
+│   ├── retriever.py        # Retriever — index() and retrieve()
+│   └── __main__.py         # `python -m rag` retrieval demo over docs/
 ├── docs/
 │   ├── architecture.md         # System design + mermaid diagrams + decisions
+│   ├── toy-model.md            # Model spec sheet + training results
 │   └── concepts/
 │       ├── 001-embeddings.md   # How tokens become vectors
 │       └── 002-qkv.md          # How Query / Key / Value attention works
-├── tests/
-│   ├── test_model.py           # 14 tests across the four model files
-│   ├── test_harness.py         # 16 tests for the abstraction + ToyLLMProvider
-│   └── test_ollama_provider.py # 6 tests for OllamaProvider (HTTP mocked)
-├── data/                   # Created at runtime — dataset, vocab.json, checkpoint.pt
+├── tests/                  # 79 tests total
+│   ├── test_model.py           # the four model files
+│   ├── test_harness.py         # the abstraction + ToyLLMProvider
+│   ├── test_ollama_provider.py # OllamaProvider (HTTP mocked)
+│   ├── test_rag.py             # chunking, store, embedder, retriever
+│   ├── test_pipeline.py        # RAGPipeline prompt augmentation
+│   └── test_cli.py             # CLI Ctrl+C handling
+├── data/                   # Created at runtime — dataset, vocab, checkpoint, rag.db
 └── requirements.txt
 ```
 
@@ -112,8 +139,10 @@ Each concept doc follows the same shape: the problem, the intuition, the step-by
 1. ✅ **LLM** — tokenizer, attention, transformer, training loop, tests.
 2. ✅ **Harness** — `LLMProvider` interface + `ToyLLMProvider` around the trained checkpoint.
 3. ✅ **Real provider** — `OllamaProvider`, compared against the toy model through the same interface.
-4. ⬜ **RAG** — chunking, an embedding function, a minimal vector store, and `retrieve()`.
-5. ⬜ **Connect everything** — harness calls RAG, builds the prompt, calls the provider, returns the answer.
+4. ✅ **RAG** — chunking, Ollama embeddings, a SQLite vector store, and `retrieve()`.
+5. ✅ **Connect everything** — `RAGPipeline` retrieves, builds the prompt, calls the provider, returns the answer.
+
+The original roadmap is complete: the LLM, the harness, and RAG are all built and wired together.
 
 ---
 

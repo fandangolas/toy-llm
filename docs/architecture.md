@@ -16,7 +16,7 @@ We are building three things, in order:
 
 1. **The LLM** — a GPT-style transformer that generates text. *(built)*
 2. **The harness** — a thin orchestrator that connects components and abstracts the LLM behind a swappable interface. *(built — toy + Ollama providers)*
-3. **RAG** — retrieval that feeds relevant context into the LLM at generation time. *(planned)*
+3. **RAG** — retrieval that feeds relevant context into the LLM at generation time. *(built — SQLite vector store)*
 
 ---
 
@@ -53,11 +53,12 @@ The flow is always the same: the harness receives a question, asks RAG for relev
 | LLM (tokenizer, attention, transformer, training) | ✅ Built | `model/` |
 | Harness + `LLMProvider` abstraction | ✅ Built | `harness/` |
 | Providers: `ToyLLMProvider`, `OllamaProvider` | ✅ Built | `harness/` |
+| RAG (chunking, embedding, SQLite vector store, retrieval) | ✅ Built | `rag/` |
+| RAG pipeline (retrieve → augment → generate) | ✅ Built | `harness/pipeline.py` |
 | Concept documentation | ✅ In progress | `docs/concepts/` |
-| Tests (36) | ✅ Built | `tests/` |
-| RAG (chunking, embedding, vector store, retrieval) | ⬜ Planned | `rag/` (not yet created) |
+| Tests (79) | ✅ Built | `tests/` |
 
-The rest of this document describes the built LLM and harness, then sketches the design of the still-planned RAG component so its interface is clear before we write it.
+Every component in the original plan is now built. The rest of this document describes how each one works and the contracts that keep them swappable.
 
 ---
 
@@ -168,7 +169,7 @@ python -m harness --provider ollama --model qwen2.5-coder:14b
 
 ---
 
-## Component 3 — RAG (planned)
+## Component 3 — RAG (built)
 
 A language model only knows what it learned during training. **Retrieval-Augmented Generation** fixes this by fetching relevant text from an external knowledge base at question time and inserting it into the prompt — so the model can answer using information it was never trained on.
 
@@ -210,6 +211,31 @@ sequenceDiagram
 
 Note that the **embedding model used by RAG is separate from the LLM** that generates text. RAG embeddings are about *similarity search*; the LLM is about *generation*. Keeping them distinct is itself a useful concept to internalize.
 
+### What's built
+
+| Piece | File | Role |
+|---|---|---|
+| `chunk_text` | `rag/chunk.py` | Splits documents into overlapping passages |
+| `OllamaEmbedder` | `rag/embed.py` | Text → vectors via Ollama (`nomic-embed-text`), stdlib HTTP |
+| `VectorStore` + `SqliteStore` | `rag/store.py` | A swappable store abstraction; SQLite is the one backend today |
+| `Retriever` | `rag/retriever.py` | `index(documents)` and `retrieve(query, k) -> list[str]` |
+| `RAGPipeline` | `harness/pipeline.py` | Ties retrieval to a provider: retrieve → augment → generate |
+
+**SQLite stores, torch searches.** `SqliteStore` persists each `(text, embedding)` pair to a single file (`data/rag.db`), the vector as a float32 BLOB. At query time it loads the vectors into a tensor and computes cosine similarity in torch — SQLite does no vector math. That store-vs-search split is the key concept: a vector database is just *storage + a similarity search*, and here you see both halves.
+
+**The store is swappable.** `Retriever` depends on the `VectorStore` interface, not on SQLite — a future Postgres/pgvector or FAISS backend is one new class with `add` / `search` / `count`, nothing else changing. Same pattern as `LLMProvider`.
+
+One honest caveat worth internalizing: retrieval has **no relevance threshold** — it always returns the *k nearest* passages, even when none are truly relevant. That is why an off-topic query still returns *something*.
+
+### Running it
+
+```bash
+ollama pull nomic-embed-text             # one-time: a dedicated embedding model
+python -m rag "how does Q/K/V work?"     # retrieval only — prints the top passages
+```
+
+For a full grounded answer, `RAGPipeline` retrieves passages and feeds them to any provider (`harness/pipeline.py`).
+
 ---
 
 ## Architecture decisions
@@ -224,6 +250,7 @@ Every choice below trades production-grade capability for **learnability**. The 
 | **File count** | 4 files, one concept each | No package sprawl. You can hold the whole model in your head. |
 | **Dataset** | Tiny Shakespeare (~1 MB) | Small enough to train fast, structured enough that progress is visible and fun (names, dialogue, verse). |
 | **LLM abstraction** | A thin `Protocol`, hand-written | Lets the toy model and real models be swapped freely — without pulling in a framework that hides the wiring. |
+| **Vector store** | A single SQLite file + cosine in torch, behind a `VectorStore` interface | Stdlib persistence with the similarity math kept visible; no vector DB to hide the search. Swappable for pgvector/FAISS later. |
 | **Component coupling** | LLM / harness / RAG fully decoupled | Each can be built and understood in isolation. The harness is the only integration point. |
 | **No orchestration framework** | Build the harness and RAG by hand | Frameworks like LangChain do exactly what we want to *learn*. Doing it manually is the whole point. |
 
@@ -235,7 +262,7 @@ These are the rules that keep the components swappable. They are worth stating e
 
 - **`model/` knows nothing about prompts, RAG, or providers.** It deals in token IDs and tensors. It is a pure model.
 - **The provider adapter is the only place that bridges tokens ↔ strings** for our toy model. Other providers (Ollama, OpenAI) already speak strings.
-- **The harness is the only component that imports both RAG and an LLM provider.** RAG and the LLM never import each other.
+- **`harness/pipeline.py` is the only component that imports both `rag` and a provider.** RAG and the providers never import each other — and a test fails if `rag/` ever imports `model/` or `harness/`.
 - **RAG returns text, not tokens.** It produces context strings; turning them into model input is the provider's concern.
 
 ---
@@ -245,7 +272,7 @@ These are the rules that keep the components swappable. They are worth stating e
 1. ✅ **LLM** — tokenizer, attention, transformer, training loop.
 2. ✅ **Harness skeleton** — `LLMProvider` Protocol + `ToyLLMProvider` around the trained checkpoint.
 3. ✅ **Wire a real provider** — `OllamaProvider` (stdlib HTTP), compared against the toy model through the same interface.
-4. ⬜ **RAG** — chunking, an embedding function, a minimal vector store, and `retrieve()`.
-5. ⬜ **Connect everything** — harness calls RAG, builds the prompt, calls the provider, returns the answer.
+4. ✅ **RAG** — chunking, Ollama embeddings, a SQLite vector store, and `retrieve()`.
+5. ✅ **Connect everything** — `RAGPipeline` retrieves, builds the prompt, calls the provider, returns the answer.
 
 Each step is small, self-contained, and adds exactly one concept to the picture.
